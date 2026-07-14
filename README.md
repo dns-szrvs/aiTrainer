@@ -1,4 +1,4 @@
-# aiCoach
+# aiTrainer
 
 Personal workout coach as a Python MCP server for OpenClaw. Chat over Telegram, log exercises in natural language, and let the agent read structured progress from SQLite.
 

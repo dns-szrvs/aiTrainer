@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "aicoach": {
+      "command": "/home/you/aicoach/.venv/bin/aicoach-mcp",
+      "args": [],
+      "env": {
+        "AICOACH_DB_PATH": "/home/you/.local/share/aicoach/aicoach.db",
+        "AICOACH_DEFAULT_UNIT": "kg",
+        "AICOACH_IDLE_TIMEOUT_SECONDS": "10800"
+      }
+    }
+  }
+}

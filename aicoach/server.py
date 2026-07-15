@@ -128,6 +128,64 @@ def get_progress(exercise: str) -> str:
 
 
 @mcp.tool()
+def get_session(session_id: int) -> str:
+    """Return one workout session with set ids for editing or deletion."""
+    with _repository() as repo:
+        result = repo.get_session(session_id)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def update_session(
+    session_id: int,
+    performed_on: str | None = None,
+    note: str | None = None,
+) -> str:
+    """Update a workout session date or session note."""
+    with _repository() as repo:
+        result = repo.update_session(session_id, performed_on=performed_on, note=note)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def update_workout_set(
+    set_id: int,
+    reps: int | None = None,
+    weight: float | None = None,
+    unit: str | None = None,
+    rpe: float | None = None,
+    note: str | None = None,
+) -> str:
+    """Update one logged set by id."""
+    with _repository() as repo:
+        result = repo.update_workout_set(
+            set_id,
+            reps=reps,
+            weight=weight,
+            unit=unit,
+            rpe=rpe,
+            note=note,
+        )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def delete_session(session_id: int) -> str:
+    """Delete an entire workout session and all sets in it."""
+    with _repository() as repo:
+        result = repo.delete_session(session_id)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def delete_exercise_from_session(session_id: int, exercise: str) -> str:
+    """Delete one exercise and all of its sets from a workout session."""
+    with _repository() as repo:
+        result = repo.delete_exercise_from_session(session_id, exercise)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
 def list_exercises() -> str:
     """List known exercises and aliases to help normalize exercise names."""
     with _repository() as repo:

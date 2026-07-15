@@ -297,6 +297,7 @@ class WorkoutRepository:
         rows = self.conn.execute(
             """
             SELECT
+                ws.id,
                 e.canonical_name AS exercise,
                 ws.set_index,
                 ws.reps,
@@ -316,6 +317,7 @@ class WorkoutRepository:
         for row in rows:
             grouped.setdefault(row["exercise"], []).append(
                 {
+                    "id": row["id"],
                     "set_index": row["set_index"],
                     "reps": row["reps"],
                     "weight": row["weight"],
@@ -330,11 +332,219 @@ class WorkoutRepository:
             for exercise, sets in grouped.items()
         ]
 
+    def _require_session(self, session_id: int) -> sqlite3.Row:
+        row = self.conn.execute(
+            """
+            SELECT id, started_at, last_activity_at, closed, note
+            FROM workout_session
+            WHERE id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Session {session_id} not found")
+        return row
+
+    def _require_set(self, set_id: int) -> sqlite3.Row:
+        row = self.conn.execute(
+            """
+            SELECT
+                ws.id,
+                ws.session_id,
+                ws.exercise_id,
+                ws.performed_on,
+                ws.set_index,
+                ws.reps,
+                ws.weight,
+                ws.unit,
+                ws.rpe,
+                ws.note,
+                e.canonical_name AS exercise
+            FROM workout_set ws
+            JOIN exercise e ON e.id = ws.exercise_id
+            WHERE ws.id = ?
+            """,
+            (set_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Set {set_id} not found")
+        return row
+
+    @staticmethod
+    def _replace_date(timestamp: str, new_date: str) -> str:
+        time_part = timestamp.split(" ", 1)[1] if " " in timestamp else "00:00:00"
+        return f"{new_date} {time_part}"
+
+    def get_session(self, session_id: int) -> dict[str, Any]:
+        row = self._require_session(session_id)
+        performed_on = self.conn.execute(
+            """
+            SELECT performed_on
+            FROM workout_set
+            WHERE session_id = ?
+            ORDER BY id
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return {
+            "id": row["id"],
+            "started_at": row["started_at"],
+            "last_activity_at": row["last_activity_at"],
+            "performed_on": performed_on["performed_on"] if performed_on else None,
+            "closed": bool(row["closed"]),
+            "note": row["note"],
+            "exercises": self._session_exercises(session_id),
+            "summary": self._session_summary(session_id),
+        }
+
+    def update_session(
+        self,
+        session_id: int,
+        *,
+        performed_on: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._require_session(session_id)
+        if performed_on is None and note is None:
+            raise ValueError("At least one of performed_on or note must be provided")
+
+        if performed_on is not None:
+            self.conn.execute(
+                """
+                UPDATE workout_set
+                SET performed_on = ?
+                WHERE session_id = ?
+                """,
+                (performed_on, session_id),
+            )
+            self.conn.execute(
+                """
+                UPDATE workout_session
+                SET started_at = ?, last_activity_at = ?
+                WHERE id = ?
+                """,
+                (
+                    self._replace_date(row["started_at"], performed_on),
+                    self._replace_date(row["last_activity_at"], performed_on),
+                    session_id,
+                ),
+            )
+
+        if note is not None:
+            self.conn.execute(
+                "UPDATE workout_session SET note = ? WHERE id = ?",
+                (note, session_id),
+            )
+
+        self.conn.commit()
+        return self.get_session(session_id)
+
+    def update_workout_set(
+        self,
+        set_id: int,
+        *,
+        reps: int | None = None,
+        weight: float | None = None,
+        unit: str | None = None,
+        rpe: float | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._require_set(set_id)
+        updates: dict[str, Any] = {}
+        if reps is not None:
+            updates["reps"] = reps
+        if weight is not None:
+            updates["weight"] = weight
+        if unit is not None:
+            updates["unit"] = unit
+        if rpe is not None:
+            updates["rpe"] = rpe
+        if note is not None:
+            updates["note"] = note
+        if not updates:
+            raise ValueError("At least one set field must be provided")
+
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        self.conn.execute(
+            f"UPDATE workout_set SET {assignments} WHERE id = ?",
+            (*updates.values(), set_id),
+        )
+        self.conn.commit()
+        updated = self._require_set(set_id)
+        return {
+            "id": updated["id"],
+            "session_id": updated["session_id"],
+            "exercise": updated["exercise"],
+            "performed_on": updated["performed_on"],
+            "set_index": updated["set_index"],
+            "reps": updated["reps"],
+            "weight": updated["weight"],
+            "unit": updated["unit"],
+            "rpe": updated["rpe"],
+            "note": updated["note"],
+        }
+
+    def delete_session(self, session_id: int) -> dict[str, Any]:
+        session = self.get_session(session_id)
+        self.conn.execute("DELETE FROM workout_session WHERE id = ?", (session_id,))
+        self.conn.commit()
+        return {
+            "deleted": True,
+            "session_id": session_id,
+            "removed_exercise_count": session["summary"]["exercise_count"],
+            "removed_set_count": session["summary"]["set_count"],
+        }
+
+    def delete_exercise_from_session(self, session_id: int, exercise_name: str) -> dict[str, Any]:
+        self._require_session(session_id)
+        exercise = self.resolve_exercise(exercise_name)
+        rows = self.conn.execute(
+            """
+            SELECT id
+            FROM workout_set
+            WHERE session_id = ? AND exercise_id = ?
+            """,
+            (session_id, exercise.id),
+        ).fetchall()
+        if not rows:
+            raise ValueError(
+                f"Exercise '{exercise.canonical_name}' not found in session {session_id}"
+            )
+
+        self.conn.execute(
+            "DELETE FROM workout_set WHERE session_id = ? AND exercise_id = ?",
+            (session_id, exercise.id),
+        )
+        remaining = self.conn.execute(
+            "SELECT COUNT(*) AS count FROM workout_set WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if remaining["count"] == 0:
+            self.conn.execute("DELETE FROM workout_session WHERE id = ?", (session_id,))
+            self.conn.commit()
+            return {
+                "deleted_exercise": exercise.canonical_name,
+                "session_id": session_id,
+                "removed_set_count": len(rows),
+                "session_deleted": True,
+            }
+
+        self.conn.commit()
+        return {
+            "deleted_exercise": exercise.canonical_name,
+            "session_id": session_id,
+            "removed_set_count": len(rows),
+            "session_deleted": False,
+            "session": self.get_session(session_id),
+        }
+
     def get_exercise_history(self, exercise_name: str, limit: int = 10) -> dict[str, Any]:
         exercise = self.resolve_exercise(exercise_name)
         rows = self.conn.execute(
             """
             SELECT
+                ws.id,
                 ws.session_id,
                 ws.performed_on,
                 ws.set_index,
@@ -364,6 +574,7 @@ class WorkoutRepository:
                 }
             current["sets"].append(
                 {
+                    "id": row["id"],
                     "set_index": row["set_index"],
                     "reps": row["reps"],
                     "weight": row["weight"],

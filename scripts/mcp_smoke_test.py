@@ -31,12 +31,17 @@ async def main() -> None:
             tools = await session.list_tools()
             tool_names = sorted(tool.name for tool in tools.tools)
             expected = {
+                "delete_exercise_from_session",
+                "delete_session",
                 "get_current_workout",
                 "get_exercise_history",
                 "get_progress",
                 "get_recent_workouts",
+                "get_session",
                 "list_exercises",
                 "log_workout",
+                "update_session",
+                "update_workout_set",
             }
             assert expected.issubset(set(tool_names)), tool_names
 

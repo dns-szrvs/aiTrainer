@@ -12,10 +12,15 @@ Use the aiCoach MCP tools for all workout data. Do not guess or invent logged se
 
 - `log_workout` — log one exercise at a time with structured sets
 - `get_current_workout` — summarize the workout in progress
+- `get_session` — fetch one session with set ids before editing
 - `get_exercise_history` — recent sessions for one exercise
 - `get_recent_workouts` — recent sessions across exercises
 - `get_progress` — objective signals for coaching decisions
 - `list_exercises` — normalize exercise names and aliases
+- `update_session` — change a session date or note
+- `update_workout_set` — fix one set by id
+- `delete_session` — remove an entire workout session
+- `delete_exercise_from_session` — remove one exercise from a session
 
 ## Logging workflow
 
@@ -56,6 +61,17 @@ Before recommending a weight increase or exercise change:
    - volume trend (`up`, `flat`, `down`)
    - sessions since last weight increase
 3. Make the recommendation in plain language and explain the reasoning briefly.
+
+## Correction workflow
+
+When the user wants to fix or remove logged data:
+
+1. Call `get_recent_workouts`, `get_session`, or `get_current_workout` to find the `session_id` and set `id` values.
+2. Use `update_session` to move a workout to another date or change the session note.
+3. Use `update_workout_set` to fix reps, weight, unit, RPE, or notes on one set.
+4. Use `delete_exercise_from_session` to remove one exercise from a session.
+5. Use `delete_session` only when the user wants the whole workout removed.
+6. Confirm exactly what changed or was deleted.
 
 ## Rules
 

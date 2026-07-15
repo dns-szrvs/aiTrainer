@@ -92,10 +92,15 @@ Copy [`prompts/coach_instructions.md`](prompts/coach_instructions.md) into your 
 | --- | --- |
 | `log_workout` | Log one exercise and attach it to the current session |
 | `get_current_workout` | Show the open session and exercises logged so far |
+| `get_session` | Fetch one session with set ids for editing |
 | `get_exercise_history` | Recent sessions for one exercise |
 | `get_recent_workouts` | Recent sessions across exercises |
 | `get_progress` | Coaching signals for one exercise |
 | `list_exercises` | Known exercises and aliases |
+| `update_session` | Change a session date or note |
+| `update_workout_set` | Update one set by id |
+| `delete_session` | Delete an entire workout session |
+| `delete_exercise_from_session` | Delete one exercise from a session |
 
 ## Example tool input
 

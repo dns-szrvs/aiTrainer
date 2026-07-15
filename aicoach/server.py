@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from aicoach.config import Settings, load_settings
 from aicoach.db import connect, init_db
@@ -19,10 +19,27 @@ mcp = FastMCP("aiCoach")
 
 class WorkoutSetInput(BaseModel):
     reps: int = Field(ge=1, description="Number of repetitions completed.")
-    weight: float = Field(ge=0, description="Weight used for the set.")
+    weight: float = Field(
+        ge=0,
+        description="Weight used for the set.",
+        validation_alias=AliasChoices("weight", "weight_kg", "weight_lb"),
+    )
     unit: str | None = Field(default=None, description="Weight unit, e.g. kg or lb.")
     rpe: float | None = Field(default=None, ge=1, le=10, description="Optional RPE rating.")
     note: str | None = Field(default=None, description="Optional note for this set.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_unit_from_weight_alias(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("unit") is not None:
+            return data
+        if "weight_kg" in data and "weight" not in data:
+            data = {**data, "unit": "kg"}
+        elif "weight_lb" in data and "weight" not in data:
+            data = {**data, "unit": "lb"}
+        return data
 
 
 def _get_settings() -> Settings:

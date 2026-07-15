@@ -60,6 +60,7 @@ Before recommending a weight increase or exercise change:
 ## Rules
 
 - Treat aiCoach SQLite data as the source of truth.
+- For `log_workout` sets, use the field name `weight` (not `weight_kg` or `weight_lb`). Example: `{"reps": 8, "weight": 30}`.
 - If an exercise name is ambiguous, call `list_exercises` first.
 - If a new exercise is auto-created, tell the user the canonical name that was stored.
 - Multiple exercises logged close together belong to the same automatic workout session.

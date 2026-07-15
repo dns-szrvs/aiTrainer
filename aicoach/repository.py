@@ -103,35 +103,42 @@ class WorkoutRepository:
         self.conn.commit()
         return Exercise(exercise_id, canonical, self.default_unit, created=True)
 
-    def _close_stale_sessions(self, now: datetime, performed_on: str) -> None:
+    def _close_stale_live_sessions(self, now: datetime) -> None:
         cutoff = (now - timedelta(seconds=self.idle_timeout_seconds)).isoformat(sep=" ")
         self.conn.execute(
             """
             UPDATE workout_session
             SET closed = 1
-            WHERE closed = 0
-              AND (
-                    last_activity_at < ?
-                 OR date(started_at) != date(?)
-              )
+            WHERE closed = 0 AND last_activity_at < ?
             """,
-            (cutoff, performed_on),
+            (cutoff,),
         )
 
     def _get_or_create_open_session(self, performed_on: str, now: datetime) -> int:
-        self._close_stale_sessions(now, performed_on)
+        if performed_on == now.date().isoformat():
+            return self._get_or_create_live_session(performed_on, now)
+        return self._get_or_create_backdated_session(performed_on)
+
+    def _get_or_create_live_session(self, performed_on: str, now: datetime) -> int:
+        self._close_stale_live_sessions(now)
         cutoff = (now - timedelta(seconds=self.idle_timeout_seconds)).isoformat(sep=" ")
         row = self.conn.execute(
             """
-            SELECT id
-            FROM workout_session
-            WHERE closed = 0
-              AND date(started_at) = date(?)
-              AND last_activity_at >= ?
-            ORDER BY last_activity_at DESC
+            SELECT s.id
+            FROM workout_session s
+            WHERE s.closed = 0
+              AND s.last_activity_at >= ?
+              AND (
+                NOT EXISTS (SELECT 1 FROM workout_set ws WHERE ws.session_id = s.id)
+                OR EXISTS (
+                    SELECT 1 FROM workout_set ws
+                    WHERE ws.session_id = s.id AND ws.performed_on = ?
+                )
+              )
+            ORDER BY s.last_activity_at DESC
             LIMIT 1
             """,
-            (performed_on, cutoff),
+            (cutoff, performed_on),
         ).fetchone()
 
         now_iso = now.replace(microsecond=0).isoformat(sep=" ")
@@ -149,6 +156,32 @@ class WorkoutRepository:
             VALUES (?, ?)
             """,
             (now_iso, now_iso),
+        )
+        return cursor.lastrowid
+
+    def _get_or_create_backdated_session(self, performed_on: str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT s.id
+            FROM workout_session s
+            JOIN workout_set ws ON ws.session_id = s.id
+            WHERE ws.performed_on = ?
+            GROUP BY s.id
+            ORDER BY s.id
+            LIMIT 1
+            """,
+            (performed_on,),
+        ).fetchone()
+        if row:
+            return row["id"]
+
+        anchored = f"{performed_on} 12:00:00"
+        cursor = self.conn.execute(
+            """
+            INSERT INTO workout_session (started_at, last_activity_at, closed)
+            VALUES (?, ?, 1)
+            """,
+            (anchored, anchored),
         )
         return cursor.lastrowid
 
@@ -265,20 +298,26 @@ class WorkoutRepository:
     def get_current_workout(self, now: datetime | None = None) -> dict[str, Any] | None:
         now = now or datetime.now()
         performed_on = now.date().isoformat()
-        self._close_stale_sessions(now, performed_on)
+        self._close_stale_live_sessions(now)
         cutoff = (now - timedelta(seconds=self.idle_timeout_seconds)).isoformat(sep=" ")
 
         row = self.conn.execute(
             """
-            SELECT id, started_at, last_activity_at, closed, note
-            FROM workout_session
-            WHERE closed = 0
-              AND date(started_at) = date(?)
-              AND last_activity_at >= ?
-            ORDER BY last_activity_at DESC
+            SELECT s.id, s.started_at, s.last_activity_at, s.closed, s.note
+            FROM workout_session s
+            WHERE s.closed = 0
+              AND s.last_activity_at >= ?
+              AND (
+                NOT EXISTS (SELECT 1 FROM workout_set ws WHERE ws.session_id = s.id)
+                OR EXISTS (
+                    SELECT 1 FROM workout_set ws
+                    WHERE ws.session_id = s.id AND ws.performed_on = ?
+                )
+              )
+            ORDER BY s.last_activity_at DESC
             LIMIT 1
             """,
-            (performed_on, cutoff),
+            (cutoff, performed_on),
         ).fetchone()
         if not row:
             return None
@@ -495,6 +534,68 @@ class WorkoutRepository:
             "removed_exercise_count": session["summary"]["exercise_count"],
             "removed_set_count": session["summary"]["set_count"],
         }
+
+    def merge_sessions(
+        self,
+        target_session_id: int,
+        source_session_ids: list[int],
+    ) -> dict[str, Any]:
+        self._require_session(target_session_id)
+        sources = [session_id for session_id in source_session_ids if session_id != target_session_id]
+        if not sources:
+            raise ValueError("At least one source session id must differ from the target")
+
+        for session_id in sources:
+            self._require_session(session_id)
+
+        placeholders = ", ".join("?" * len(sources))
+        self.conn.execute(
+            f"UPDATE workout_set SET session_id = ? WHERE session_id IN ({placeholders})",
+            (target_session_id, *sources),
+        )
+
+        exercise_rows = self.conn.execute(
+            """
+            SELECT DISTINCT exercise_id
+            FROM workout_set
+            WHERE session_id = ?
+            """,
+            (target_session_id,),
+        ).fetchall()
+        for exercise_row in exercise_rows:
+            set_rows = self.conn.execute(
+                """
+                SELECT id
+                FROM workout_set
+                WHERE session_id = ? AND exercise_id = ?
+                ORDER BY id
+                """,
+                (target_session_id, exercise_row["exercise_id"]),
+            ).fetchall()
+            for index, set_row in enumerate(set_rows, start=1):
+                self.conn.execute(
+                    "UPDATE workout_set SET set_index = ? WHERE id = ?",
+                    (index, set_row["id"]),
+                )
+
+        target_row = self._require_session(target_session_id)
+        notes = [target_row["note"]] if target_row["note"] else []
+        for session_id in sources:
+            source_row = self._require_session(session_id)
+            if source_row["note"]:
+                notes.append(source_row["note"])
+        if notes:
+            self.conn.execute(
+                "UPDATE workout_session SET note = ? WHERE id = ?",
+                (" | ".join(notes), target_session_id),
+            )
+
+        self.conn.execute(
+            f"DELETE FROM workout_session WHERE id IN ({placeholders})",
+            sources,
+        )
+        self.conn.commit()
+        return self.get_session(target_session_id)
 
     def delete_exercise_from_session(self, session_id: int, exercise_name: str) -> dict[str, Any]:
         self._require_session(session_id)

@@ -101,6 +101,7 @@ Copy [`prompts/coach_instructions.md`](prompts/coach_instructions.md) into your 
 | `update_workout_set` | Update one set by id |
 | `delete_session` | Delete an entire workout session |
 | `delete_exercise_from_session` | Delete one exercise from a session |
+| `merge_sessions` | Merge source sessions into one target session |
 
 ## Example tool input
 

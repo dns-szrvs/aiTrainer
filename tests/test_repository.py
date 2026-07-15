@@ -66,3 +66,45 @@ def test_list_exercises_includes_aliases(repo):
     exercises = repo.list_exercises()
     assert len(exercises) == 1
     assert "overhead press" in exercises[0]["aliases"]
+
+
+def test_backdated_logging_groups_exercises_into_one_session(repo):
+    now = datetime(2026, 7, 15, 10, 0, 0)
+    performed_on = "2026-07-08"
+
+    first = repo.log_workout(
+        "deadlift",
+        [SetInput(reps=10, weight=30)],
+        performed_on=performed_on,
+        now=now,
+    )
+    second = repo.log_workout(
+        "squat",
+        [SetInput(reps=10, weight=30)],
+        performed_on=performed_on,
+        now=now + timedelta(minutes=5),
+    )
+
+    assert first["session"]["id"] == second["session"]["id"]
+    session = repo.get_session(first["session"]["id"])
+    assert len(session["exercises"]) == 2
+    assert session["started_at"].startswith(performed_on)
+
+
+def test_backdated_logging_keeps_different_dates_separate(repo):
+    now = datetime(2026, 7, 15, 10, 0, 0)
+
+    july_8 = repo.log_workout(
+        "deadlift",
+        [SetInput(reps=10, weight=30)],
+        performed_on="2026-07-08",
+        now=now,
+    )
+    july_12 = repo.log_workout(
+        "squat",
+        [SetInput(reps=10, weight=30)],
+        performed_on="2026-07-12",
+        now=now + timedelta(minutes=5),
+    )
+
+    assert july_8["session"]["id"] != july_12["session"]["id"]

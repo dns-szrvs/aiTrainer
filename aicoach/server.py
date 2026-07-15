@@ -186,6 +186,14 @@ def delete_exercise_from_session(session_id: int, exercise: str) -> str:
 
 
 @mcp.tool()
+def merge_sessions(target_session_id: int, source_session_ids: list[int]) -> str:
+    """Merge one or more source sessions into a target session."""
+    with _repository() as repo:
+        result = repo.merge_sessions(target_session_id, source_session_ids)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
 def list_exercises() -> str:
     """List known exercises and aliases to help normalize exercise names."""
     with _repository() as repo:

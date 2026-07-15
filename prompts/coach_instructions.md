@@ -21,6 +21,7 @@ Use the aiCoach MCP tools for all workout data. Do not guess or invent logged se
 - `update_workout_set` — fix one set by id
 - `delete_session` — remove an entire workout session
 - `delete_exercise_from_session` — remove one exercise from a session
+- `merge_sessions` — combine mis-split sessions into one target session
 
 ## Logging workflow
 
@@ -71,7 +72,10 @@ When the user wants to fix or remove logged data:
 3. Use `update_workout_set` to fix reps, weight, unit, RPE, or notes on one set.
 4. Use `delete_exercise_from_session` to remove one exercise from a session.
 5. Use `delete_session` only when the user wants the whole workout removed.
-6. Confirm exactly what changed or was deleted.
+6. Use `merge_sessions` when multiple sessions on the same date should be one workout. Call `get_recent_workouts` or `get_session` first to collect the target id and source ids.
+7. Confirm exactly what changed or was deleted.
+
+Backdated workouts logged one exercise at a time now group automatically by `performed_on` date. Use `merge_sessions` only to clean up older mis-split sessions.
 
 ## Rules
 

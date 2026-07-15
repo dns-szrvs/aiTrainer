@@ -40,6 +40,7 @@ async def main() -> None:
                 "get_session",
                 "list_exercises",
                 "log_workout",
+                "merge_sessions",
                 "update_session",
                 "update_workout_set",
             }
